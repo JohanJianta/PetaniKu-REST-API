@@ -149,7 +149,7 @@ Terdapat 9 endpoint yang tersedia pada REST API. Seluruh endpoint, kecuali *logi
 - Endpoint :  `DELETE  /user`
 - Request :  none
 - Response :
-  ```
+  ```json
   {
 	"pesan": "Akun berhasil dihapus"
   }
