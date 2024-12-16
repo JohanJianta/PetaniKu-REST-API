@@ -158,8 +158,10 @@ Terdapat 9 endpoint yang tersedia pada REST API. Seluruh endpoint, kecuali *logi
 ### Pengecekan tanaman
 - Endpoint :  `POST  /predictions`
 - Request :  Multipart Form  
-  `payload = {  "season": "Dry",  "planting_type": "Direct Seeded",  "paddy_age": 3,  "coordinates": [    {"latitude": -7.797068, "longitude": 110.370529},    {"latitude": -7.798068, "longitude": 110.371529}  ]}
-   images = ["path_to_image1.jpg", "path_to_image2.jpg"]`
+  ```
+  payload = {  "season": "Dry",  "planting_type": "Direct Seeded",  "paddy_age": 3,  "coordinates": [    {"latitude": -7.797068, "longitude": 110.370529},    {"latitude": -7.798068, "longitude": 110.371529}  ]}
+  images = ["path_to_image1.jpg", "path_to_image2.jpg"]
+  ```
 - Response :  
   ```json
   {
