@@ -80,14 +80,14 @@ class UserModel(Resource):
         if not user_data:
             abort(404, pesan='Akun tidak ditemukan')
 
-        rice_fields_doc = firestore_client.get_latest_rice_fields(user_id)
-        if not rice_fields_doc:
-            abort(400, pesan='Anda perlu melakukan scan lahan terlebih dahulu')
-        rice_fields_data = rice_fields_doc.to_dict()
+        rice_field_doc = firestore_client.get_latest_rice_field(user_id)
+        if not rice_field_doc:
+            user_data['summary'] = None
+            return user_data, 200
 
-        predction_data = firestore_client.get_all_predictions_by_rice_fields(user_id, rice_fields_doc)
-
-        return predction_data, 200
+        prediction_summary = firestore_client.get_prediction_summary_by_rice_field(user_id, rice_field_doc)
+        user_data['summary'] = prediction_summary
+        return user_data, 200
 
     def post(self):
         """
@@ -108,7 +108,7 @@ class UserModel(Resource):
     @token_required
     def put(self):
         """
-        Update user's rice_fields (by creating a new document)
+        Update user's rice_field (by creating a new document)
         """
         user_id = request.user_id
         if not user_id:
@@ -120,7 +120,7 @@ class UserModel(Resource):
         args = parser.parse_args(strict=True)
         
         try:
-            success = firestore_client.add_rice_fields(user_id, args['coordinates'], args['area'])
+            success = firestore_client.add_rice_field(user_id, args['coordinates'], args['area'])
             if not success:
                 abort(404, pesan='Akun tidak ditemukan')
                 
@@ -180,10 +180,10 @@ class PredictionModel(Resource):
         if not user_data:
             abort(404, pesan='Akun tidak ditemukan')
         
-        rice_fields_doc = firestore_client.get_latest_rice_fields(user_id)
-        if not rice_fields_doc:
+        rice_field_doc = firestore_client.get_latest_rice_field(user_id)
+        if not rice_field_doc:
             abort(400, pesan='Anda perlu melakukan scan lahan terlebih dahulu')
-        rice_fields_data = rice_fields_doc.to_dict()
+        rice_field_data = rice_field_doc.to_dict()
 
         try:
             payload = json.loads(request.form.get('payload', '{}'))
@@ -230,15 +230,16 @@ class PredictionModel(Resource):
                 raise ValueError('Jumlah gambar harus sama dengan jumlah koordinat')
         
             # Retrieve nutrition (nitrogen) and yields prediction
-            levels, nitrogen_required, urea_required, fertilizer_required = prediction_utils.predict_nutrition(images, season, planting_type, paddy_age, rice_fields_data['area'])
-            yields = prediction_utils.predict_yields(rice_fields_data['area'])
+            levels, nitrogen_required, urea_required, fertilizer_required = prediction_utils.predict_nutrition(images, season, planting_type, paddy_age, rice_field_data['area'])
+            yields = prediction_utils.predict_yields(rice_field_data['area'])
 
             # Upload all images to Cloudinary
-            # secure_urls = upload_to_cloudinary(images)
+            secure_urls = upload_to_cloudinary(images)
 
-            secure_urls = []
-            for _ in images:
-                secure_urls.append("https://res.cloudinary.com/dfz5oiipg/image/upload/v1733814647/tooj0wrokovctygnwatj.jpg")
+            # Generate fake urls
+            # secure_urls = []
+            # for _ in images:
+            #     secure_urls.append("https://res.cloudinary.com/dfz5oiipg/image/upload/v1733814647/tooj0wrokovctygnwatj.jpg")
 
             data = {
                 'season': season,
@@ -248,7 +249,7 @@ class PredictionModel(Resource):
                 'urea_required': urea_required,
                 'fertilizer_required': fertilizer_required,
                 'yields': yields,
-                'rice_field': rice_fields_doc.reference,
+                'rice_field': rice_field_doc.reference,
             }
 
             prediction_data = firestore_client.add_prediction(user_id, data, secure_urls, levels, coordinates)

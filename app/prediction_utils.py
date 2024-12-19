@@ -3,20 +3,27 @@ import torch.nn as nn
 from torch.nn.functional import softmax
 import torchvision
 from torchvision import transforms
+import cv2
+import numpy as np
 from PIL import Image
+from io import BytesIO
+from ultralytics import YOLO
 
 class PredictionUtils:
     def __init__(self):
         # Initialize the device (use GPU if available, otherwise use CPU)
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
-        # Load and define the model architecture
-        self.model = self._load_model('./saved_model/GoogleNet_StateDict.pth')
+        # Load and define the classification model architecture
+        self.classification_model = self._load_model('./saved_model/GoogleNet_StateDict.pth')
         self.data_transform = transforms.Compose([
             transforms.Resize((100, 100)),
             transforms.ToTensor(),
             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
         ])
+
+        # Load the detection model
+        self.detection_model = YOLO("./saved_model/YOLO_Rice_Leaf_Detection_V2.torchscript", task='detect')
         
         # Define configurations
         self.confidence_threshold = 0.7
@@ -55,24 +62,48 @@ class PredictionUtils:
         model.load_state_dict(torch.load(model_path, weights_only=True))
         return model.to(self.device).eval()
 
-    def _predict_LCC(self, image_paths):
+    def _predict_LCC(self, image_files):
         """
         Predict the LCC reading for each image.
         """
-        readings = []
-        for image_path in image_paths:
-            image = Image.open(image_path).convert('RGB')
-            image_tensor = self.data_transform(image).unsqueeze(0).to(self.device)
-            with torch.no_grad():
-                output = self.model(image_tensor)
-                probabilities = softmax(output, dim=1)
-                max_prob, predicted_idx = torch.max(probabilities, 1)
-            if max_prob.item() < self.confidence_threshold:
-                readings.append('Uncertain')
-            else:
+        image_inputs = []
+        for file in image_files:
+            image_pil = Image.open(BytesIO(file.read())).convert('RGB')
+            image_np = cv2.cvtColor(np.array(image_pil), cv2.COLOR_RGB2BGR)
+            image_inputs.append(image_np)
+
+        leaf_detections = self.detection_model(image_inputs)
+
+        lcc_readings = []
+        for index, detection in enumerate(leaf_detections):
+            for box in detection.boxes:
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                confidence = box.conf[0]
+
+                if confidence < self.confidence_threshold:
+                    continue
+
+                cropped_leaf = image_inputs[index][y1:y2, x1:x2]
+                # cv2.imwrite(f"./app/cropped_img/img-{index}.jpg", cropped_leaf)   # for testing only
+                cropped_leaf_pil = Image.fromarray(cv2.cvtColor(cropped_leaf, cv2.COLOR_BGR2RGB))
+
+                image_tensor = self.data_transform(cropped_leaf_pil).unsqueeze(0).to(self.device)
+                with torch.no_grad():
+                    output = self.classification_model(image_tensor)
+                    probabilities = softmax(output, dim=1)
+                    max_prob, predicted_idx = torch.max(probabilities, 1)
+                    
+                if max_prob.item() < self.confidence_threshold:
+                    continue
+                
                 class_name = list(self.class_indices.keys())[predicted_idx.item()]
-                readings.append(class_name)
-        return readings
+                lcc_readings.append(class_name)
+                break
+
+            if len(lcc_readings) == index:
+                lcc_readings.append('Uncertain')
+
+        return lcc_readings
 
     def _get_growth_stage(self, paddy_age):
         """
@@ -89,12 +120,12 @@ class PredictionUtils:
         """
         growth_stage = self._get_growth_stage(paddy_age)
         threshold = self.thresholds[planting_type]
-
+        
         levels = [self.level_map.get(reading, 0) for reading in lcc_readings]  # Default 0 for 'Uncertain'
 
         uncertainty = sum(level == 0 for level in levels)
         if uncertainty >= len(levels) / 2:
-            return None
+            return None, None
         
         below_threshold = sum(level < threshold for level in levels)
         nitrogen_value = self.nitrogen_values[growth_stage][season][planting_type]
@@ -117,10 +148,10 @@ class PredictionUtils:
         """
         Predict nutrition requirements.
         """
-        predictions = self._predict_LCC(image_paths)
+        lcc_readings = self._predict_LCC(image_paths)
 
-        levels, nitrogen = self._calculate_nitrogen(current_season, planting_type, paddy_age, predictions)
-        if not nitrogen:
+        levels, nitrogen = self._calculate_nitrogen(current_season, planting_type, paddy_age, lcc_readings)
+        if not levels or not nitrogen:
             raise ValueError('Gambar harus berupa daun padi')
         
         urea, sacks = self._calculate_fertilizer(nitrogen, field_area)

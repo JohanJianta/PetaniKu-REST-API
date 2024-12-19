@@ -1,6 +1,40 @@
 from datetime import datetime
 from firebase_admin import firestore
 
+def _get_document(ref, check_deleted=True):
+    """
+    Retrieves a document reference and optionally checks if it's deleted.
+    """
+    doc = ref.get()
+    if not doc.exists:
+        return None
+    doc_data = doc.to_dict()
+    if check_deleted and doc_data.get('is_deleted', True):
+        return None
+    return doc_data
+
+def _serialize_rice_field_coordinates(coordinates):                        
+    rice_field_coordinates = []
+    for coordinate in coordinates:
+        coord_map = {
+            "latitude": coordinate.latitude,
+            "longitude": coordinate.longitude,
+        }
+        rice_field_coordinates.append(coord_map)
+    return rice_field_coordinates
+
+def _serialize_images(images):
+    serialized_images = []
+    for image in images:
+        image_map = {
+            'latitude': image['coordinate'].latitude,
+            'longitude': image['coordinate'].longitude,
+            'level': image['level'],
+            'url': image['url'],
+        }
+        serialized_images.append(image_map)
+    return serialized_images
+
 class FirestoreClient:
     def __init__(self):
         self.db = firestore.client()
@@ -10,15 +44,9 @@ class FirestoreClient:
         """
         Retrieves a specific user by ID.
         """
-        user_doc = self.users_collection.document(user_id).get()
-        if not user_doc.exists:
-            return None
-        
-        user_data = user_doc.to_dict()
-        if user_data.get('is_deleted', True):
-            return None
-        
-        user_data.pop('is_deleted', None)
+        user_data = _get_document(self.users_collection.document(user_id))
+        if user_data:
+            user_data.pop('is_deleted', None)
         return user_data
 
     def get_user_by_phone(self, phone):
@@ -38,38 +66,29 @@ class FirestoreClient:
         """
         if name == '':
             raise ValueError('Nama tidak boleh kosong')
-        
         if phone == '':
             raise ValueError('Nomor HP tidak boleh kosong')
-        
         if self.get_user_by_phone(phone):
             raise ValueError('Nomor HP sudah terdaftar')
 
         data = {'name': name, 'phone': phone, 'is_deleted': False}
         return self.users_collection.add(data)[1].id
 
-    def add_rice_fields(self, user_id, coordinates, area):
+    def add_rice_field(self, user_id, coordinates, area):
         """
-        Add a new rice_fields for an user
+        Add a new rice_field for an user
         """
         user_ref = self.users_collection.document(user_id)
-        if not user_ref.get().exists or user_ref.get().to_dict().get('is_deleted', True):
+        if not _get_document(user_ref):
             return False
         
-        if not coordinates:
-            raise ValueError('coordinates tidak boleh kosong')
-        
-        if len(coordinates) < 3:
+        if not coordinates or len(coordinates) < 3:
             raise ValueError('coordinates minimal berisikan 3 titik')
-            
         if area == 0:
             raise ValueError('area tidak boleh bernilai 0')
-        
-        geopoints = []
-        for coord in coordinates:
-            geopoints.append(firestore.GeoPoint(coord['latitude'], coord['longitude']))
 
-        user_ref.collection('rice_fields').add({'coordinates': geopoints, 'area': area, 'create_time': datetime.now()})
+        geopoints = [firestore.GeoPoint(coord['latitude'], coord['longitude']) for coord in coordinates]
+        user_ref.collection('rice_fields').add({'coordinates': geopoints, 'area': area, 'created_time': datetime.now()})
         return True
     
     def delete_user(self, user_id):
@@ -77,7 +96,7 @@ class FirestoreClient:
         Soft-deletes an user by ID.
         """
         user_ref = self.users_collection.document(user_id)
-        if not user_ref.get().exists or user_ref.get().to_dict().get('is_deleted', True):
+        if not _get_document(user_ref):
             return False
         
         user_ref.update({'is_deleted': True})
@@ -87,51 +106,29 @@ class FirestoreClient:
         """
         Retrieves a specific prediction document by ID.
         """
-        prediction_doc = self.users_collection.document(user_id).collection('predictions').document(prediction_id).get()
-        if not prediction_doc.exists:
+        prediction_data = _get_document(self.users_collection.document(user_id).collection('predictions').document(prediction_id))
+        if not prediction_data:
             return None
         
-        prediction_data = prediction_doc.to_dict()
-        if prediction_data.get('is_deleted', True):
-            return None
-        
-        prediction_data['create_time'] = prediction_data['create_time'].isoformat()
         rice_field = prediction_data['rice_field'].get().to_dict()
         prediction_data['area'] = rice_field['area']
-                    
-        coordinate_maps = []
-        for coordinate in rice_field['coordinates']:
-            coord_map = {
-                "latitude": coordinate.latitude,
-                "longitude": coordinate.longitude,
-            }
-            coordinate_maps.append(coord_map)
-        prediction_data['rice_field'] = coordinate_maps
-        
-        images = []
-        for image in prediction_data['images']:
-            image_map = {
-                'latitude': image['coordinate'].latitude,
-                'longitude': image['coordinate'].longitude,
-                'level': image['level'],
-                'url': image['url'],
-            }
-            images.append(image_map)
-        prediction_data['images'] = images
+        prediction_data['rice_field'] = _serialize_rice_field_coordinates(rice_field['coordinates'])
+        prediction_data['images'] = _serialize_images(prediction_data['images'])
+        prediction_data['created_time'] = prediction_data['created_time'].isoformat()
 
         prediction_data.pop('is_deleted', None)
         return prediction_data
 
-    def get_all_predictions(self, user_id):
+    def get_all_predictions(self, user_id, limit=10):
         """
         Retrieves all prediction documents for a specific user.
         """
-        predictions_docs = self.users_collection.document(user_id).collection('predictions').where('is_deleted', '==', False).stream()
+        predictions_docs = self.users_collection.document(user_id).collection('predictions').where('is_deleted', '==', False).order_by('created_time', direction=firestore.Query.DESCENDING).limit(limit).stream()
 
         prediction_data = []
         for doc in predictions_docs:
             data = doc.to_dict()
-            data['create_time'] = data['create_time'].isoformat()
+            data['created_time'] = data['created_time'].isoformat()
             data['prediction_id'] = doc.id
             data.pop('rice_field', None)
             data.pop('is_deleted', None)
@@ -144,22 +141,22 @@ class FirestoreClient:
         """
         Adds a new prediction document to a specific user.
         """
-        images = []
-        for url, lvl, coord in zip(secure_urls, levels, coordinates):
-            img = {
+        images = [
+            {
                 'url': url,
                 'level': lvl,
                 'coordinate': firestore.GeoPoint(coord['latitude'], coord['longitude'])
-            }
-            images.append(img)
+            } for url, lvl, coord in zip(secure_urls, levels, coordinates)
+        ]
 
-        data = {**data, 'images': images, 'is_deleted': False, 'create_time': datetime.now()}
-        prediction_id = self.users_collection.document(user_id).collection('predictions').add(data)[1].id
-        
-        prediction_data = self.get_prediction(user_id, prediction_id)
-        if not prediction_data:
-            raise Exception("Terjadi kesalahan ketika mengambil data pengecekan tanaman")
-        
+        data = {**data, 'images': images, 'is_deleted': False, 'created_time': datetime.now()}
+        prediction_data = self.users_collection.document(user_id).collection('predictions').add(data)[1].get().to_dict()
+
+        rice_field = prediction_data['rice_field'].get().to_dict()
+        prediction_data['area'] = rice_field['area']
+        prediction_data['rice_field'] = _serialize_rice_field_coordinates(rice_field['coordinates'])
+        prediction_data['images'] = _serialize_images(prediction_data['images'])
+        prediction_data['created_time'] = prediction_data['created_time'].isoformat()
         return prediction_data
 
     def delete_prediction(self, user_id, prediction_id):
@@ -167,24 +164,41 @@ class FirestoreClient:
         Soft-deletes a prediction document by ID.
         """
         prediction_ref = self.users_collection.document(user_id).collection('predictions').document(prediction_id)
-        if not prediction_ref.get().exists or prediction_ref.get().to_dict().get('is_deleted', True):
+        if not _get_document(prediction_ref):
             return False
         
         prediction_ref.update({'is_deleted': True})
         return True
     
-    def get_latest_rice_fields(self, user_id):
+    def get_latest_rice_field(self, user_id):
         """
-        Retrieves the most recent rice_fields document for a specific user based on create_time.
+        Retrieves the most recent rice_fields document for a specific user based on created_time.
         """
-        rice_fields_ref = self.users_collection.document(user_id).collection('rice_fields')
-        rice_fields_doc = rice_fields_ref.order_by('create_time', direction=firestore.Query.DESCENDING).limit(1).stream()
-        return next(rice_fields_doc, None)
+        rice_field_doc = self.users_collection.document(user_id).collection('rice_fields').order_by('created_time', direction=firestore.Query.DESCENDING).limit(1).stream()
+        return next(rice_field_doc, None)
     
-    def get_all_predictions_by_rice_fields(self, user_id, rice_fields_doc):
-        prediction_docs = self.users_collection.document(user_id).collection('predictions').where('is_deleted', '==', False).where('rice_field', '==', rice_fields_doc.reference).stream()
-
-        prediction_data = []
+    def get_prediction_summary_by_rice_field(self, user_id, rice_field_doc):
+        prediction_docs = list(self.users_collection.document(user_id).collection('predictions').where('is_deleted', '==', False).where('rice_field', '==', rice_field_doc.reference).order_by('created_time', direction=firestore.Query.DESCENDING).stream())
+        if not prediction_docs:
+            return None
+        
+        main_data_keys = ["season", "paddy_age", "planting_type", "rice_field", "images", "created_time"]
+        sub_data_keys = ["nitrogen_required", "urea_required", "fertilizer_required", "yields", "created_time"]
+        
+        sub_data_list = []
         for doc in prediction_docs:
-            prediction_data.append(self.get_prediction(user_id, doc.id))
-        return prediction_data
+            data = doc.to_dict()
+            data['created_time'] = data['created_time'].isoformat()
+
+            if len(sub_data_list) == 0:
+                rice_field = data['rice_field'].get().to_dict()
+                main_data = {key: data[key] for key in main_data_keys}
+                main_data['area'] = rice_field['area']
+                main_data['rice_field'] = _serialize_rice_field_coordinates(rice_field['coordinates'])
+                main_data['images'] = _serialize_images(main_data['images'])
+            
+            sub_data = {key: data[key] for key in sub_data_keys}
+            sub_data_list.append(sub_data)
+
+        main_data['statistics'] = sub_data_list
+        return main_data
