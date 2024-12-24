@@ -85,8 +85,9 @@ class UserModel(Resource):
             user_data['summary'] = None
             return user_data, 200
 
-        prediction_summary = firestore_client.get_prediction_summary_by_rice_field(user_id, rice_field_doc)
-        user_data['summary'] = prediction_summary
+        summary_data, rice_field_data = firestore_client.get_prediction_summary_by_rice_field(user_id, rice_field_doc)
+        user_data['summary'] = summary_data
+        user_data['rice_field'] = rice_field_data
         return user_data, 200
 
     def post(self):

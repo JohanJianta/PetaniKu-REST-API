@@ -182,23 +182,24 @@ class FirestoreClient:
         if not prediction_docs:
             return None
         
-        main_data_keys = ["season", "paddy_age", "planting_type", "rice_field", "images", "created_time"]
-        sub_data_keys = ["nitrogen_required", "urea_required", "fertilizer_required", "yields", "created_time"]
+        summary_keys = ["season", "paddy_age", "planting_type", "images", "created_time"]
+        statistic_keys = ["nitrogen_required", "urea_required", "fertilizer_required", "yields", "created_time"]
         
-        sub_data_list = []
+        statistic_list = []
         for doc in prediction_docs:
             data = doc.to_dict()
             data['created_time'] = data['created_time'].isoformat()
 
-            if len(sub_data_list) == 0:
-                rice_field = data['rice_field'].get().to_dict()
-                main_data = {key: data[key] for key in main_data_keys}
-                main_data['area'] = rice_field['area']
-                main_data['rice_field'] = _serialize_rice_field_coordinates(rice_field['coordinates'])
-                main_data['images'] = _serialize_images(main_data['images'])
+            if len(statistic_list) == 0:
+                summary_data = {key: data[key] for key in summary_keys}
+                summary_data['images'] = _serialize_images(summary_data['images'])
             
-            sub_data = {key: data[key] for key in sub_data_keys}
-            sub_data_list.append(sub_data)
+            sub_data = {key: data[key] for key in statistic_keys}
+            statistic_list.append(sub_data)
+        summary_data['statistics'] = statistic_list
 
-        main_data['statistics'] = sub_data_list
-        return main_data
+        rice_field_data = rice_field_doc.to_dict()
+        rice_field_data['created_time'] = rice_field_data['created_time'].isoformat()
+        rice_field_data['coordinates'] = _serialize_rice_field_coordinates(rice_field_data['coordinates'])
+
+        return summary_data, rice_field_data
