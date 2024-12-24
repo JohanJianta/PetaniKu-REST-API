@@ -178,9 +178,13 @@ class FirestoreClient:
         return next(rice_field_doc, None)
     
     def get_prediction_summary_by_rice_field(self, user_id, rice_field_doc):
+        rice_field_data = rice_field_doc.to_dict()
+        rice_field_data['created_time'] = rice_field_data['created_time'].isoformat()
+        rice_field_data['coordinates'] = _serialize_rice_field_coordinates(rice_field_data['coordinates'])
+
         prediction_docs = list(self.users_collection.document(user_id).collection('predictions').where('is_deleted', '==', False).where('rice_field', '==', rice_field_doc.reference).order_by('created_time', direction=firestore.Query.DESCENDING).stream())
         if not prediction_docs:
-            return None
+            return None, rice_field_data
         
         summary_keys = ["season", "paddy_age", "planting_type", "images", "created_time"]
         statistic_keys = ["nitrogen_required", "urea_required", "fertilizer_required", "yields", "created_time"]
@@ -197,9 +201,5 @@ class FirestoreClient:
             sub_data = {key: data[key] for key in statistic_keys}
             statistic_list.append(sub_data)
         summary_data['statistics'] = statistic_list
-
-        rice_field_data = rice_field_doc.to_dict()
-        rice_field_data['created_time'] = rice_field_data['created_time'].isoformat()
-        rice_field_data['coordinates'] = _serialize_rice_field_coordinates(rice_field_data['coordinates'])
 
         return summary_data, rice_field_data

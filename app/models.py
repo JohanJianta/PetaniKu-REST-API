@@ -83,6 +83,7 @@ class UserModel(Resource):
         rice_field_doc = firestore_client.get_latest_rice_field(user_id)
         if not rice_field_doc:
             user_data['summary'] = None
+            user_data['rice_field'] = None
             return user_data, 200
 
         summary_data, rice_field_data = firestore_client.get_prediction_summary_by_rice_field(user_id, rice_field_doc)
