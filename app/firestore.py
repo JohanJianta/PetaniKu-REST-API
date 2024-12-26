@@ -64,13 +64,6 @@ class FirestoreClient:
         """
         Add a new user if the phone number is unique.
         """
-        if name == '':
-            raise ValueError('Nama tidak boleh kosong')
-        if phone == '':
-            raise ValueError('Nomor HP tidak boleh kosong')
-        if self.get_user_by_phone(phone):
-            raise ValueError('Nomor HP sudah terdaftar')
-
         data = {'name': name, 'phone': phone, 'is_deleted': False}
         return self.users_collection.add(data)[1].id
 
@@ -81,11 +74,6 @@ class FirestoreClient:
         user_ref = self.users_collection.document(user_id)
         if not _get_document(user_ref):
             return False
-        
-        if not coordinates or len(coordinates) < 3:
-            raise ValueError('coordinates minimal berisikan 3 titik')
-        if area == 0:
-            raise ValueError('area tidak boleh bernilai 0')
 
         geopoints = [firestore.GeoPoint(coord['latitude'], coord['longitude']) for coord in coordinates]
         user_ref.collection('rice_fields').add({'coordinates': geopoints, 'area': area, 'created_time': datetime.now()})

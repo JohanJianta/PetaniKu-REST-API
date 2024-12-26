@@ -1,4 +1,4 @@
-from flask_restful import Resource, reqparse, abort
+from flask_restful import Resource, abort
 from flask import request
 from functools import wraps
 from .firestore import FirestoreClient
@@ -41,8 +41,8 @@ def _validate_coordinates(coordinate):
     latitude = coordinate.get('latitude')
     longitude = coordinate.get('longitude')
 
-    if not (isinstance(latitude, float) and isinstance(longitude, float)):
-        raise ValueError('Dictionary coordinate harus berisikan latitude dan longitude (float)')
+    if not (isinstance(latitude, (int, float)) and isinstance(longitude, (int, float))):
+        raise ValueError('Dictionary coordinate harus berisikan latitude dan longitude (angka)')
 
     if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
         raise ValueError('Nilai latitude dan longitude tidak valid')
@@ -54,16 +54,20 @@ class LoginModel(Resource):
         """
         Authenticate an user and return a JWT token.
         """
-        parser = reqparse.RequestParser()
-        parser.add_argument('phone', type=str, required=True, help='phone diperlukan')
-        args = parser.parse_args(strict=True)
+        data = request.get_json()
+        if not data or 'phone' not in data:
+            abort(400, pesan='phone diperlukan')
 
-        user_doc = firestore_client.get_user_by_phone(args['phone'])
+        phone = data.get('phone')
+        if not isinstance(phone, str) or not phone.strip():
+            abort(400, pesan='phone harus berupa string dan tidak boleh kosong')
+        
+        user_doc = firestore_client.get_user_by_phone(phone.strip())
         if not user_doc:
-            return {'pesan': 'Akun tidak ditemukan'}, 404
+            abort(404, pesan='Akun tidak ditemukan')
 
         token = generate_token(user_doc.id)
-        return {'pesan': 'Login berhasil', 'token': token}, 200
+        return {'pesan': 'Login berhasil', 'token' : token }, 200
 
 
 class UserModel(Resource):
@@ -95,17 +99,24 @@ class UserModel(Resource):
         """
         Add a new user if the phone number is unique.
         """
-        parser = reqparse.RequestParser()
-        parser.add_argument('phone', type=str, required=True, help='phone diperlukan')
-        parser.add_argument('name', type=str, required=True, help='name diperlukan')
-        args = parser.parse_args(strict=True)
+        data = request.get_json()
+        if not data or 'name' not in data or 'phone' not in data:
+            abort(400, pesan='name dan phone diperlukan')
 
-        try:
-            user_id = firestore_client.add_user(args['name'], args['phone'])
-            token = generate_token(user_id)
-            return {'pesan': 'Akun berhasil dibuat', 'token': token}, 201
-        except ValueError as e:
-            abort(400, pesan=str(e))
+        name = data.get('name')   
+        phone = data.get('phone')
+        if not isinstance(name, str) or not isinstance(phone, str) or not name.strip() or not phone.strip():
+            abort(400, pesan='name dan phone harus berupa string dan tidak boleh kosong')
+
+        name = name.strip()
+        phone = phone.strip()
+
+        if firestore_client.get_user_by_phone(phone):
+            abort(400, pesan='Nomor HP sudah terdaftar')
+
+        user_id = firestore_client.add_user(name, phone)
+        token = generate_token(user_id)
+        return {'pesan': 'Pendaftaran akun berhasil', 'token' : token }, 201
 
     @token_required
     def put(self):
@@ -116,19 +127,28 @@ class UserModel(Resource):
         if not user_id:
             abort(400, pesan='user_id diperlukan')
 
-        parser = reqparse.RequestParser()
-        parser.add_argument('coordinates', type=_validate_coordinates, action='append')  # Accepts list of dict (latitude,longitude)
-        parser.add_argument('area', type=float, required=True, help='area diperlukan')
-        args = parser.parse_args(strict=True)
+        data = request.get_json()
+        if not data:
+            abort(400, pesan='Payload JSON diperlukan')
+            
+        area = data.get('area')
+        if area is None or not isinstance(area, (int, float)) or area <= 0:
+            abort(400, pesan='area harus berupa angka positif')
+
+        coordinates = data.get('coordinates')
+        if not coordinates or not isinstance(coordinates, list) or len(coordinates) < 4:
+            abort(400, pesan='coordinates harus berupa list dan minimal berisikan 4 titik')
         
         try:
-            success = firestore_client.add_rice_field(user_id, args['coordinates'], args['area'])
-            if not success:
-                abort(404, pesan='Akun tidak ditemukan')
-                
-            return {'pesan': 'Area lahan padi berhasil diperbarui'}, 200
+            validated_coordinates = [_validate_coordinates(coord) for coord in coordinates]
         except ValueError as e:
             abort(400, pesan=str(e))
+
+        success = firestore_client.add_rice_field(user_id, validated_coordinates, area)
+        if not success:
+            abort(404, pesan='Akun tidak ditemukan')
+            
+        return {'pesan': 'Area lahan padi berhasil diperbarui'}, 200
 
     @token_required
     def delete(self):
@@ -215,8 +235,8 @@ class PredictionModel(Resource):
                 raise ValueError("season harus berupa Dry/Wet")
             if not planting_type == 'Transplanted' and not planting_type == 'Direct Seeded':
                 raise ValueError("planting_type harus berupa Transplanted/Direct Seeded")
-            for coord in coordinates:
-                _validate_coordinates(coord)
+            
+            validated_coordinates = [_validate_coordinates(coord) for coord in coordinates]
 
             # Validate uploaded images
             if 'images' not in request.files:
@@ -228,7 +248,7 @@ class PredictionModel(Resource):
                 if image.filename == '' or not image.filename.endswith(('.jpg', '.jpeg', '.png')):
                     raise ValueError('Format gambar harus berupa jpg, jpeg, atau png')
 
-            if len(images) != len(coordinates):
+            if len(images) != len(validated_coordinates):
                 raise ValueError('Jumlah gambar harus sama dengan jumlah koordinat')
         
             # Retrieve nutrition (nitrogen) and yields prediction
@@ -237,11 +257,6 @@ class PredictionModel(Resource):
 
             # Upload all images to Cloudinary
             secure_urls = upload_to_cloudinary(images)
-
-            # Generate fake urls
-            # secure_urls = []
-            # for _ in images:
-            #     secure_urls.append("https://res.cloudinary.com/dfz5oiipg/image/upload/v1733814647/tooj0wrokovctygnwatj.jpg")
 
             data = {
                 'season': season,
@@ -254,7 +269,7 @@ class PredictionModel(Resource):
                 'rice_field': rice_field_doc.reference,
             }
 
-            prediction_data = firestore_client.add_prediction(user_id, data, secure_urls, levels, coordinates)
+            prediction_data = firestore_client.add_prediction(user_id, data, secure_urls, levels, validated_coordinates)
             return prediction_data, 201
         except ValueError as e:
             abort(400, pesan=str(e))
