@@ -51,47 +51,110 @@ Terdapat 9 endpoint yang tersedia pada REST API. Seluruh endpoint, kecuali *logi
 - Request :  none
 - Response :  
   ```json
-  [
-	{
-		"urea_required": 40,
-		"season": "Wet",
-		"nitrogen_required": 10,
-		"planting_type": "Transplanted",
+  {
+	"phone": "0895630486298",
+	"name": "nobody",
+	"summary": {
+		"season": "Dry",
+		"paddy_age": 3,
+		"planting_type": "Direct Seeded",
 		"images": [
 			{
-				"latitude": 16.4328151,
-				"longitude": 100.5521142,
-				"level": 3,
-				"url": "https://res.cloudinary.com/dfz5oiipg/image/upload/v1733814648/krolf2l05fuqbolmoaom.jpg"
+				"latitude": -7.797068,
+				"longitude": 110.370529,
+				"level": 2,
+				"url": "https://res.cloudinary.com/dfz5oiipg/image/upload/v1733814647/tooj0wrokovctygnwatj.jpg"
 			},
 			{
-				"latitude": -37.7758475,
-				"longitude": -67.7134201,
+				"latitude": -7.798068,
+				"longitude": 110.371529,
 				"level": 3,
 				"url": "https://res.cloudinary.com/dfz5oiipg/image/upload/v1733814647/tooj0wrokovctygnwatj.jpg"
 			},
 			{
-				"latitude": 51.7192247,
-				"longitude": 20.5223046,
+				"latitude": -7.797068,
+				"longitude": 110.370529,
+				"level": 2,
+				"url": "https://res.cloudinary.com/dfz5oiipg/image/upload/v1733814647/tooj0wrokovctygnwatj.jpg"
+			},
+			{
+				"latitude": -7.798068,
+				"longitude": 110.371529,
+				"level": 2,
+				"url": "https://res.cloudinary.com/dfz5oiipg/image/upload/v1733814647/tooj0wrokovctygnwatj.jpg"
+			},
+			{
+				"latitude": -7.797068,
+				"longitude": 110.370529,
+				"level": 0,
+				"url": "https://res.cloudinary.com/dfz5oiipg/image/upload/v1733814647/tooj0wrokovctygnwatj.jpg"
+			},
+			{
+				"latitude": -7.798068,
+				"longitude": 110.371529,
+				"level": 1,
+				"url": "https://res.cloudinary.com/dfz5oiipg/image/upload/v1733814647/tooj0wrokovctygnwatj.jpg"
+			},
+			{
+				"latitude": -7.797068,
+				"longitude": 110.370529,
+				"level": 4,
+				"url": "https://res.cloudinary.com/dfz5oiipg/image/upload/v1733814647/tooj0wrokovctygnwatj.jpg"
+			},
+			{
+				"latitude": -7.798068,
+				"longitude": 110.371529,
+				"level": 0,
+				"url": "https://res.cloudinary.com/dfz5oiipg/image/upload/v1733814647/tooj0wrokovctygnwatj.jpg"
+			},
+			{
+				"latitude": -7.797068,
+				"longitude": 110.370529,
+				"level": 0,
+				"url": "https://res.cloudinary.com/dfz5oiipg/image/upload/v1733814647/tooj0wrokovctygnwatj.jpg"
+			},
+			{
+				"latitude": -7.798068,
+				"longitude": 110.371529,
 				"level": 3,
-				"url": "https://res.cloauadinary.com/dfz5oiipg/image/upload/v1733814646/d4r8xgdp8kuttuvr4tn9.jpg"
-			},
-			{
-				"latitude": 27.028446,
-				"longitude": 106.461061,
-				"level": 2,
-				"url": "https://res.cloudinary.com/dfz5oiipg/image/upload/v1733814649/mt30lfit4h72jk5lccqy.jpg"
-			},
-			{
-				"latitude": 8.1104639,
-				"longitude": -67.6095967,
-				"level": 2,
-				"url": "https://res.cloudinary.com/dfz5oiipg/image/upload/v1733814649/x0obgeu9wbyhmy1eidom.jpg"
+				"url": "https://res.cloudinary.com/dfz5oiipg/image/upload/v1733814647/tooj0wrokovctygnwatj.jpg"
 			}
 		],
-		"paddy_age": 3,
-		"create_time": "2024-12-10T15:10:53.622000+00:00",
-		"rice_field": [
+		"created_time": "2024-12-26T15:52:11.448511+00:00",
+		"statistics": [
+			{
+				"nitrogen_required": 15,
+				"urea_required": 65.21739130434783,
+				"fertilizer_required": 1.3043478260869565,
+				"yields": 6,
+				"created_time": "2024-12-26T15:52:11.448511+00:00"
+			},
+			{
+				"nitrogen_required": 15,
+				"urea_required": 65.21739130434783,
+				"fertilizer_required": 1.3043478260869565,
+				"yields": 6,
+				"created_time": "2024-12-17T16:00:00.310000+00:00"
+			},
+			{
+				"nitrogen_required": 7.5,
+				"urea_required": 32.608695652173914,
+				"fertilizer_required": 0.6521739130434783,
+				"yields": 6,
+				"created_time": "2024-12-14T16:00:00.464000+00:00"
+			},
+			{
+				"nitrogen_required": 10,
+				"urea_required": 40,
+				"fertilizer_required": 0.8695652173913043,
+				"yields": 6,
+				"created_time": "2024-12-09T16:00:00.608000+00:00"
+			}
+		]
+	},
+	"rice_field": {
+		"created_time": "2024-12-08T16:00:00.723000+00:00",
+		"coordinates": [
 			{
 				"latitude": 51.9309719,
 				"longitude": 19.190298
@@ -109,11 +172,9 @@ Terdapat 9 endpoint yang tersedia pada REST API. Seluruh endpoint, kecuali *logi
 				"longitude": 109.1463836
 			}
 		],
-		"fertilizer_required": 0.8695652173913043,
-		"yields": 6,
 		"area": 2
 	}
-  ]
+  }
   ```
 
 ### Perbarui peta lahan padi
@@ -156,7 +217,7 @@ Terdapat 9 endpoint yang tersedia pada REST API. Seluruh endpoint, kecuali *logi
   ```
 
 ### Pengecekan tanaman
-- Endpoint :  `POST  /predictions`
+- Endpoint :  `POST  /user/predictions`
 - Request :  Multipart Form  
   ```
   payload = {  "season": "Dry",  "planting_type": "Direct Seeded",  "paddy_age": 3,  "coordinates": [    {"latitude": -7.797068, "longitude": 110.370529},    {"latitude": -7.798068, "longitude": 110.371529}  ]}
@@ -210,7 +271,7 @@ Terdapat 9 endpoint yang tersedia pada REST API. Seluruh endpoint, kecuali *logi
   ```
 
 ### Daftar pengecekan tanaman (ringkasan)
-- Endpoint :  `GET  /predictions`
+- Endpoint :  `GET  /user/predictions`
 - Request :  none
 - Response :  
   ```json
@@ -230,7 +291,7 @@ Terdapat 9 endpoint yang tersedia pada REST API. Seluruh endpoint, kecuali *logi
   ```
 
 ### Informasi detail pengecekan tanaman
-- Endpoint :  `GET  /predictions/<string:prediction_id>`
+- Endpoint :  `GET  /user/predictions/<string:prediction_id>`
 - Request :  none
 - Response :  
   ```json
@@ -298,7 +359,7 @@ Terdapat 9 endpoint yang tersedia pada REST API. Seluruh endpoint, kecuali *logi
   ```
 
 ### Hapus pengecekan tanaman
-- Endpoint :  `DELETE  /predictions/<string:prediction_id>`
+- Endpoint :  `DELETE  /user/predictions/<string:prediction_id>`
 - Request :  none
 - Response :  
   ```json
