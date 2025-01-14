@@ -5,6 +5,7 @@ from .firestore import FirestoreClient
 from .prediction_utils import PredictionUtils
 from .auth_utils import verify_token, generate_token
 from .upload_image import upload_to_cloudinary
+from .geospatial_utils import GeospatialUtils
 import json
 
 # Initialize Firestore client
@@ -12,6 +13,9 @@ firestore_client = FirestoreClient()
 
 # Initialize Prediction Utils
 prediction_utils = PredictionUtils()
+
+# Initialize Prediction Utils
+geospatial_utils = GeospatialUtils()
 
 
 def token_required(f):  # Decorator for token validation
@@ -32,23 +36,19 @@ def token_required(f):  # Decorator for token validation
     return decorated
 
 
-def _validate_coordinates(coordinate):
+def _validate_coordinates(coordinates, field_name='coordinates'):
     """
-    Validate that coordinate is a dictionary containing valid latitude and longitude.
+    Validate that polygon is a list containing list of valid latitude (first element) and longitude (second element).
     """
-    if not isinstance(coordinate, dict):
-        raise ValueError('coordinate harus berupa dictionary')
+    if not isinstance(coordinates, list):
+        raise ValueError(f'{field_name} harus berupa list')
 
-    latitude = coordinate.get('latitude')
-    longitude = coordinate.get('longitude')
+    for point in coordinates:
+        if not isinstance(point, list) or not (isinstance(point[0], (int, float)) and isinstance(point[1], (int, float))):
+            raise ValueError(f'element {field_name} harus berupa list koordinat [latitude, longitude]')
 
-    if not (isinstance(latitude, (int, float)) and isinstance(longitude, (int, float))):
-        raise ValueError('Dictionary coordinate harus berisikan latitude dan longitude (angka)')
-
-    if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
-        raise ValueError('Nilai latitude dan longitude tidak valid')
-
-    return coordinate
+        if not (-90 <= point[0] <= 90 and -180 <= point[1] <= 180):
+            raise ValueError('Nilai latitude atau longitude tidak valid')
 
 
 class LoginModel(Resource):
@@ -88,13 +88,17 @@ class UserModel(Resource):
 
         rice_field_doc = firestore_client.get_latest_rice_field(user_id)
         if not rice_field_doc:
-            user_data['summary'] = None
-            user_data['rice_field'] = None
+            user_data.update({
+                'summary': None,
+                'rice_field': None,
+            })
             return user_data, 200
 
-        summary_data, rice_field_data = firestore_client.get_prediction_summary_by_rice_field(user_id, rice_field_doc)
-        user_data['summary'] = summary_data
-        user_data['rice_field'] = rice_field_data
+        result_dict = firestore_client.get_prediction_summary_by_rice_field(user_id, rice_field_doc)
+        user_data.update({
+            'rice_field': result_dict['rice_field'],
+            'summary': result_dict['summary'],
+        })
         return user_data, 200
 
     def post(self):
@@ -137,19 +141,19 @@ class UserModel(Resource):
         if area is None or not isinstance(area, (int, float)) or area <= 0:
             abort(400, pesan='area harus berupa angka positif')
 
-        coordinates = data.get('coordinates')
-        if not coordinates or not isinstance(coordinates, list) or len(coordinates) < 4:
-            abort(400, pesan='coordinates harus berupa list dan minimal berisikan 4 titik')
+        polygon = data.get('polygon')
+        if not polygon or not isinstance(polygon, list) or len(polygon) < 4:
+            abort(400, pesan='polygon harus berupa list dan minimal berisikan 4 titik')
 
         try:
-            validated_coordinates = [_validate_coordinates(coord) for coord in coordinates]
+            _validate_coordinates(polygon, 'polygon')
         except ValueError as e:
             abort(400, pesan=str(e))
 
-        success = firestore_client.add_rice_field(user_id, validated_coordinates, area)
+        max_yield = prediction_utils.predict_yield(area, [])
+        success = firestore_client.add_rice_field(user_id, polygon, area, max_yield)
         if not success:
             abort(404, pesan='Akun tidak ditemukan')
-
         return {'pesan': 'Area lahan padi berhasil diperbarui'}, 200
 
     @token_required
@@ -164,7 +168,6 @@ class UserModel(Resource):
         success = firestore_client.delete_user(user_id)
         if not success:
             abort(404, pesan='Akun tidak ditemukan')
-
         return {'pesan': 'Akun berhasil dihapus'}, 200
 
 
@@ -186,7 +189,6 @@ class PredictionModel(Resource):
             prediction_data = firestore_client.get_prediction(user_id, prediction_id)
             if not prediction_data:
                 abort(404, pesan='Pengecekan tanaman tidak ditemukan')
-
             return prediction_data, 200
         else:
             prediction_data = firestore_client.get_all_predictions(user_id)
@@ -212,7 +214,6 @@ class PredictionModel(Resource):
 
         try:
             payload = json.loads(request.form.get('payload', '{}'))
-
             season = payload.get('season')
             planting_type = payload.get('planting_type')
             paddy_age = payload.get('paddy_age')
@@ -238,26 +239,33 @@ class PredictionModel(Resource):
                 raise ValueError("season harus berupa Dry/Wet")
             if not planting_type == 'Transplanted' and not planting_type == 'Direct Seeded':
                 raise ValueError("planting_type harus berupa Transplanted/Direct Seeded")
-
-            validated_coordinates = [_validate_coordinates(coord) for coord in coordinates]
+            _validate_coordinates(coordinates)
 
             # Validate uploaded images
             if 'images' not in request.files:
-                raise ValueError(pesan='Images diperlukan')
+                raise ValueError(pesan='images diperlukan')
             images = request.files.getlist('images')
             if len(images) > 10:
                 raise ValueError('Maksimal 10 gambar dapat diunggah')
             for image in images:
                 if image.filename == '' or not image.filename.endswith(('.jpg', '.jpeg', '.png')):
                     raise ValueError('Format gambar harus berupa jpg, jpeg, atau png')
-
-            if len(images) != len(validated_coordinates):
+            if len(images) != len(coordinates):
                 raise ValueError('Jumlah gambar harus sama dengan jumlah koordinat')
 
-            # Retrieve nutrition (nitrogen) and yields prediction
-            levels, nitrogen_required, urea_required, fertilizer_required = prediction_utils.predict_nutrition(
-                images, season, planting_type, paddy_age, rice_field_data['area'])
-            yields = prediction_utils.predict_yields(rice_field_data['area'])
+            # Retrieve nutrition (nitrogen) prediction
+            levels, urea_required = prediction_utils.predict_nutrition(
+                images, season, planting_type, paddy_age, rice_field_data['area']
+            )
+
+            # Cluster coordinates using dbscan
+            coord_levels = [[point[1], point[0], level] for point, level in zip(coordinates, levels)]
+            boundary_coords = [[point.longitude, point.latitude] for point in rice_field_data['polygon']]
+            dbscan_result = geospatial_utils.cluster_coordinates(coord_levels, boundary_coords)
+
+            # Retrieve yield prediction
+            lcc_areas = [(dbscan_data["area"], dbscan_data["level"]) for dbscan_data in dbscan_result]
+            current_yield = prediction_utils.predict_yield(rice_field_data['area'], lcc_areas)
 
             # Upload all images to Cloudinary
             secure_urls = upload_to_cloudinary(images)
@@ -266,14 +274,12 @@ class PredictionModel(Resource):
                 'season': season,
                 'planting_type': planting_type,
                 'paddy_age': paddy_age,
-                'nitrogen_required': nitrogen_required,
                 'urea_required': urea_required,
-                'fertilizer_required': fertilizer_required,
-                'yields': yields,
+                'yield': current_yield,
                 'rice_field': rice_field_doc.reference,
             }
 
-            prediction_data = firestore_client.add_prediction(user_id, data, secure_urls, levels, validated_coordinates)
+            prediction_data = firestore_client.add_prediction(user_id, data, dbscan_result, secure_urls)
             return prediction_data, 201
         except ValueError as e:
             abort(400, pesan=str(e))

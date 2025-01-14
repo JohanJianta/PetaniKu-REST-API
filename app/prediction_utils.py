@@ -3,10 +3,7 @@ import torch.nn as nn
 from torch.nn.functional import softmax
 import torchvision
 from torchvision import transforms
-import cv2
-import numpy as np
 from PIL import Image
-from io import BytesIO
 from .leaf_segmentation import LeafSegmentation
 
 
@@ -38,14 +35,14 @@ class PredictionUtils:
             range(3, 4): 'Grain Filling'
         }
         self.nitrogen_values = {
-            'Tillering': {'Dry': {'Transplanted': 30, 'Direct Seeded': 30},
-                          'Wet': {'Transplanted': 23, 'Direct Seeded': 23}},
-            'Panicle Initiation': {'Dry': {'Transplanted': 35, 'Direct Seeded': 35},
-                                   'Wet': {'Transplanted': 27, 'Direct Seeded': 27}},
-            'Flowering': {'Dry': {'Transplanted': 20, 'Direct Seeded': 20},
-                          'Wet': {'Transplanted': 15, 'Direct Seeded': 15}},
-            'Grain Filling': {'Dry': {'Transplanted': 15, 'Direct Seeded': 15},
-                              'Wet': {'Transplanted': 10, 'Direct Seeded': 10}}
+            'Tillering': {'Dry': 25, 'Wet': 18},
+            'Panicle Initiation': {'Dry': 30, 'Wet': 23},
+            'Flowering': {'Dry': 20, 'Wet': 13},
+            'Grain Filling': {'Dry': 15, 'Wet': 8}
+        }
+        self.lcc_yield_baseline = {
+            'Transplanted': {0: 0.0, 1: 3.0, 2: 4.0, 3: 5.0, 4: 6.0},
+            'Direct Seeded': {0: 0.0, 1: 4.0, 2: 5.0, 3: 6.0, 4: 6.0}
         }
 
     def _load_model(self, model_path):
@@ -67,13 +64,7 @@ class PredictionUtils:
         """
         Predict the LCC reading for each image.
         """
-        segmented_images = []
-        for file in image_file:
-            image_stream = BytesIO(file.read())
-            image_np = np.frombuffer(image_stream.getvalue(), np.uint8)
-            image_rgb = cv2.imdecode(image_np, cv2.COLOR_RGB2BGR)
-            segmented_image = self.segmenter.segment(image_rgb)
-            segmented_images.append(segmented_image)
+        segmented_images = [self.segmenter.segment(file) for file in image_file]
 
         lcc_readings = []
         for image in segmented_images:
@@ -116,21 +107,20 @@ class PredictionUtils:
             return None, None
 
         below_threshold = sum(level < threshold for level in levels)
-        nitrogen_value = self.nitrogen_values[growth_stage][season][planting_type]
+        nitrogen_value = self.nitrogen_values[growth_stage][season]
 
         if not below_threshold >= (len(levels) - uncertainty) / 2:
             nitrogen_value = 0.5 * nitrogen_value  # Maintenance dose
 
         return levels, nitrogen_value
 
-    def _calculate_fertilizer(self, nitrogen_required, area, fertilizer_content=0.46, sack_weight=50):
+    def _calculate_fertilizer(self, nitrogen_required, field_area, fertilizer_content=0.46):
         """
         Calculate the amount of urea and fertilizer sacks required.
         """
-        total_nitrogen = nitrogen_required * area
+        total_nitrogen = nitrogen_required * field_area
         urea_required = total_nitrogen / fertilizer_content
-        num_sacks = urea_required / sack_weight
-        return urea_required, num_sacks
+        return urea_required
 
     def predict_nutrition(self, image_paths, current_season, planting_type, paddy_age, field_area):
         """
@@ -142,12 +132,24 @@ class PredictionUtils:
         if not levels or not nitrogen:
             raise ValueError('Gambar harus berupa daun padi')
 
-        urea, sacks = self._calculate_fertilizer(nitrogen, field_area)
-        return levels, nitrogen, urea, sacks
+        urea_required = self._calculate_fertilizer(nitrogen, field_area)
+        return levels, urea_required
 
-    def predict_yields(self, field_area):
-        """
-        Predict rice yields.
-        """
-        # Placeholder for yield prediction logic
-        return 6
+    def predict_yield(self, field_area, lcc_levels, planting_type='Direct Seeded'):
+        optimal_nitrogen_level = 3 if planting_type == 'Direct Seeded' else 4
+        max_yield_per_hectare = self.lcc_yield_baseline[planting_type][optimal_nitrogen_level]
+        max_yield = max_yield_per_hectare * field_area
+
+        yield_deduction = 0.0
+        for sub_area, nitrogen_level in lcc_levels:
+            if nitrogen_level not in self.lcc_yield_baseline:
+                nitrogen_level = 0
+
+            if nitrogen_level >= optimal_nitrogen_level:
+                continue
+
+            yield_per_hectare = self.lcc_yield_baseline[planting_type][nitrogen_level]
+            yield_deduction += (max_yield_per_hectare - yield_per_hectare) * sub_area
+
+        current_yield = max_yield - yield_deduction
+        return current_yield

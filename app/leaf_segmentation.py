@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+from io import BytesIO
 from scipy import ndimage
 
 
@@ -41,7 +42,10 @@ class LeafSegmentation:
         filled_background = cv2.bitwise_and(background, background, mask=inverted_mask)
         return cv2.add(img, filled_background)
 
-    def segment(self, image_rgb):
+    def segment(self, image_file):
+        image_stream = BytesIO(image_file.read())
+        image_np = np.frombuffer(image_stream.getvalue(), np.uint8)
+        image_rgb = cv2.imdecode(image_np, cv2.COLOR_RGB2BGR)
         blue, green, red = cv2.split(image_rgb)
         channels = [
             cv2.subtract(green, red),
