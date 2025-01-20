@@ -36,14 +36,14 @@ def token_required(f):  # Decorator for token validation
     return decorated
 
 
-def _validate_coordinates(coordinates, field_name='coordinates'):
+def _validate_points(points, field_name='points'):
     """
-    Validate that polygon is a list containing list of valid latitude (first element) and longitude (second element).
+    Validate that points is a list containing list of valid latitude (first element) and longitude (second element).
     """
-    if not isinstance(coordinates, list):
+    if not isinstance(points, list):
         raise ValueError(f'{field_name} harus berupa list')
 
-    for point in coordinates:
+    for point in points:
         if not isinstance(point, list) or not (isinstance(point[0], (int, float)) and isinstance(point[1], (int, float))):
             raise ValueError(f'element {field_name} harus berupa list koordinat [latitude, longitude]')
 
@@ -146,7 +146,7 @@ class UserModel(Resource):
             abort(400, pesan='polygon harus berupa list dan minimal berisikan 4 titik')
 
         try:
-            _validate_coordinates(polygon, 'polygon')
+            _validate_points(polygon, 'polygon')
         except ValueError as e:
             abort(400, pesan=str(e))
 
@@ -217,14 +217,14 @@ class PredictionModel(Resource):
             season = payload.get('season')
             planting_type = payload.get('planting_type')
             paddy_age = payload.get('paddy_age')
-            coordinates = payload.get('coordinates')
+            points = payload.get('points')
 
             # Define expected field types
             expected_types = {
                 'season': str,
                 'planting_type': str,
                 'paddy_age': int,
-                'coordinates': list
+                'points': list
             }
 
             # Validate required fields and their types
@@ -239,7 +239,7 @@ class PredictionModel(Resource):
                 raise ValueError("season harus berupa Dry/Wet")
             if not planting_type == 'Transplanted' and not planting_type == 'Direct Seeded':
                 raise ValueError("planting_type harus berupa Transplanted/Direct Seeded")
-            _validate_coordinates(coordinates)
+            _validate_points(points)
 
             # Validate uploaded images
             if 'images' not in request.files:
@@ -250,7 +250,7 @@ class PredictionModel(Resource):
             for image in images:
                 if image.filename == '' or not image.filename.endswith(('.jpg', '.jpeg', '.png')):
                     raise ValueError('Format gambar harus berupa jpg, jpeg, atau png')
-            if len(images) != len(coordinates):
+            if len(images) != len(points):
                 raise ValueError('Jumlah gambar harus sama dengan jumlah koordinat')
 
             # Retrieve nutrition (nitrogen) prediction
@@ -258,17 +258,18 @@ class PredictionModel(Resource):
                 images, season, planting_type, paddy_age, rice_field_data['area']
             )
 
-            # Cluster coordinates using dbscan
-            coord_levels = [[point[1], point[0], level] for point, level in zip(coordinates, levels)]
+            # Cluster points using dbscan
+            point_levels = [[point[1], point[0], level] for point, level in zip(points, levels)]
             boundary_coords = [[point.longitude, point.latitude] for point in rice_field_data['polygon']]
-            dbscan_result = geospatial_utils.cluster_coordinates(coord_levels, boundary_coords)
+            dbscan_result = geospatial_utils.cluster_points(point_levels, boundary_coords)
 
             # Retrieve yield prediction
             lcc_areas = [(dbscan_data["area"], dbscan_data["level"]) for dbscan_data in dbscan_result]
-            current_yield = prediction_utils.predict_yield(rice_field_data['area'], lcc_areas)
+            current_yield = prediction_utils.predict_yield(rice_field_data['area'], lcc_areas, planting_type)
 
             # Upload all images to Cloudinary
             secure_urls = upload_to_cloudinary(images)
+            # secure_urls = ['' for i in points]
 
             data = {
                 'season': season,

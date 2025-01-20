@@ -1,3 +1,4 @@
+import cv2
 import torch
 import torch.nn as nn
 from torch.nn.functional import softmax
@@ -29,10 +30,10 @@ class PredictionUtils:
         self.level_map = {'swap1': 1, 'swap2': 2, 'swap3': 3, 'swap4': 4}
         self.thresholds = {'Transplanted': 4, 'Direct Seeded': 3}
         self.age_to_growth_stage = {
-            range(0, 1): 'Tillering',
-            range(1, 2): 'Panicle Initiation',
-            range(2, 3): 'Flowering',
-            range(3, 4): 'Grain Filling'
+            range(0, 4): 'Tillering',
+            range(4, 8): 'Panicle Initiation',
+            range(8, 12): 'Flowering',
+            range(12, 16): 'Grain Filling'
         }
         self.nitrogen_values = {
             'Tillering': {'Dry': 25, 'Wet': 18},
@@ -41,8 +42,8 @@ class PredictionUtils:
             'Grain Filling': {'Dry': 15, 'Wet': 8}
         }
         self.lcc_yield_baseline = {
-            'Transplanted': {0: 0.0, 1: 3.0, 2: 4.0, 3: 5.0, 4: 6.0},
-            'Direct Seeded': {0: 0.0, 1: 4.0, 2: 5.0, 3: 6.0, 4: 6.0}
+            'Transplanted': {1: 3.0, 2: 4.0, 3: 5.0, 4: 6.0},
+            'Direct Seeded': {1: 4.0, 2: 5.0, 3: 6.0, 4: 6.0}
         }
 
     def _load_model(self, model_path):
@@ -114,9 +115,9 @@ class PredictionUtils:
 
         return levels, nitrogen_value
 
-    def _calculate_fertilizer(self, nitrogen_required, field_area, fertilizer_content=0.46):
+    def _calculate_urea(self, nitrogen_required, field_area, fertilizer_content=0.46):
         """
-        Calculate the amount of urea and fertilizer sacks required.
+        Calculate the weight of urea required.
         """
         total_nitrogen = nitrogen_required * field_area
         urea_required = total_nitrogen / fertilizer_content
@@ -132,24 +133,22 @@ class PredictionUtils:
         if not levels or not nitrogen:
             raise ValueError('Gambar harus berupa daun padi')
 
-        urea_required = self._calculate_fertilizer(nitrogen, field_area)
+        urea_required = self._calculate_urea(nitrogen, field_area)
         return levels, urea_required
 
     def predict_yield(self, field_area, lcc_levels, planting_type='Direct Seeded'):
-        optimal_nitrogen_level = 3 if planting_type == 'Direct Seeded' else 4
-        max_yield_per_hectare = self.lcc_yield_baseline[planting_type][optimal_nitrogen_level]
+        optimal_nitrogen_level = self.thresholds.get(planting_type, 0)
+        valid_levels = [level for _, level in lcc_levels if level > 0]
+        average_level = round(sum(valid_levels) / len(valid_levels)) if valid_levels else optimal_nitrogen_level
+
+        planting_baseline = self.lcc_yield_baseline.get(planting_type, {})
+        max_yield_per_hectare = planting_baseline.get(average_level, 0)
         max_yield = max_yield_per_hectare * field_area
 
-        yield_deduction = 0.0
-        for sub_area, nitrogen_level in lcc_levels:
-            if nitrogen_level not in self.lcc_yield_baseline:
-                nitrogen_level = 0
-
-            if nitrogen_level >= optimal_nitrogen_level:
-                continue
-
-            yield_per_hectare = self.lcc_yield_baseline[planting_type][nitrogen_level]
-            yield_deduction += (max_yield_per_hectare - yield_per_hectare) * sub_area
-
+        yield_deduction = sum(
+            (max_yield_per_hectare - planting_baseline.get(level, 0)) * area
+            for area, level in lcc_levels
+            if level > 0 and level != average_level
+        )
         current_yield = max_yield - yield_deduction
         return current_yield

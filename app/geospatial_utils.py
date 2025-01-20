@@ -26,28 +26,28 @@ class GeospatialUtils:
 
         self.transformer = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)  # WGS84 to Web Mercator
 
-    def _dbscan_coordinates(self):
-        """Cluster the coordinates using DBSCAN."""
+    def _dbscan_points(self):
+        """Cluster the coordinate points using DBSCAN."""
         db = DBSCAN(eps=self.epsilon_radians, min_samples=2, metric='haversine').fit(
-            np.radians(self.coordinates[:, :2]))
+            np.radians(self.points[:, :2]))
         self.labels = db.labels_
         self.unique_labels = set(self.labels) - {-1}  # Exclude noise (-1)
-        self.clusters = {label: self.coordinates[self.labels == label] for label in self.unique_labels}
-        self.noise = self.coordinates[self.labels == -1]
+        self.clusters = {label: self.points[self.labels == label] for label in self.unique_labels}
+        self.noise = self.points[self.labels == -1]
 
-    def cluster_coordinates(self, coordinates, boundary):
-        """Generate dictionary data for clustered coordinates.
+    def cluster_points(self, points, boundary):
+        """Generate dictionary data for clustered coordinate points.
 
         Args:
-            coordinates (list): List of [longitude, latitude, level] elements.
+            points (list): List of [longitude, latitude, level] elements.
             boundary (list): List of [longitude, latitude] elements.
 
         Returns:
-            list: A list containing clustered coordinates with their buffered polygons, average levels, and areas in square meter.
+            list: A list containing clustered coordinate points with their buffered polygons, average levels, and areas in square meter.
         """
         self.boundary = Polygon(boundary)
-        self.coordinates = np.array(coordinates)
-        self._dbscan_coordinates()
+        self.points = np.array(points)
+        self._dbscan_points()
         result = []
 
         # Process clusters
@@ -72,7 +72,7 @@ class GeospatialUtils:
                     "points": [[point[1], point[0]] for point in cluster_points],
                     "polygon": [[coord[1], coord[0]] for coord in clipped_polygon.exterior.coords],
                     "level": avg_level,
-                    "area": projected_polygon.area
+                    "area": projected_polygon.area / 10_000
                 })
 
         # Process noise
@@ -87,7 +87,7 @@ class GeospatialUtils:
                 "points": [[point[1], point[0]]],
                 "polygon": [[coord[1], coord[0]] for coord in clipped_polygon.exterior.coords],
                 "level": int(round(point[2])),
-                "area": projected_polygon.area
+                "area": projected_polygon.area / 10_000
             })
 
         return result

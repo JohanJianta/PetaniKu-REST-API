@@ -165,7 +165,7 @@ class FirestoreClient:
         })
 
         prediction_docs = list(self.users_collection.document(user_id).collection('predictions').where('is_deleted', '==', False).where(
-            'rice_field', '==', rice_field_doc.reference).order_by('created_time', direction=firestore.Query.DESCENDING).stream())
+            'rice_field', '==', rice_field_doc.reference).order_by('created_time', direction=firestore.Query.ASCENDING).stream())
         if not prediction_docs:
             return {'rice_field': rice_field_data, 'summary': None, 'history': None}
 
