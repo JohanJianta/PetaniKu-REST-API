@@ -174,7 +174,7 @@ class FirestoreClient:
             data = doc.to_dict()
             data['created_time'] = data['created_time'].isoformat()
             statistic_data.append({key: data[key] for key in self.statistic_keys})
-            if doc == prediction_docs[0]:
+            if doc == prediction_docs[len(prediction_docs) - 1]:
                 for leaf in data['rice_leaves']:
                     leaf['polygon'] = _serialize_geopoints(leaf['polygon'])
                     leaf['points'] = _serialize_geopoints(leaf['points'])
